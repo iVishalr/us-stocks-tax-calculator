@@ -42,34 +42,54 @@ class ScheduleFA:
             }), on="lot_buy_date",
             how="left"
         )
-        computation_df = computation_df.merge(
-            fx_rates_df.rename(columns={
-                'Date': 'sell_date',
-                'Rate': 'fx_sell_rate',
-                'Rate_last_month_end': 'fx_sell_rate_last_month_end'
-            }), on="sell_date",
-            how="left"
-        )
-        computation_df = computation_df.merge(
-            fx_rates_df.rename(columns={
-                'Date': 'dividend_date',
-                'Rate': 'fx_dividend_rate',
-                'Rate_last_month_end': 'fx_dividend_rate_last_month_end'
-            }), on="dividend_date",
-            how="left"
-        )
-        computation_df["Dividend Received (INR)"] = computation_df["dividend_received"] * computation_df["fx_dividend_rate"]
         computation_df["Lot Cost Basis (INR)"] = computation_df["lot_cost_basis"] * computation_df["fx_lot_buy_rate"]
-        computation_df["Cost Basis (INR)"] = computation_df["sell_cost_basis"] * computation_df["fx_lot_buy_rate"]
-        computation_df["Sell Proceeds (INR)"] = computation_df["sell_proceeds"] * computation_df["fx_sell_rate"]
-        computation_df["Gains/Losses (INR)"] = computation_df["Sell Proceeds (INR)"] - computation_df["Cost Basis (INR)"]
+
+        if 'sell_date' in computation_df.columns:
+            computation_df = computation_df.merge(
+                fx_rates_df.rename(columns={
+                    'Date': 'sell_date',
+                    'Rate': 'fx_sell_rate',
+                    'Rate_last_month_end': 'fx_sell_rate_last_month_end'
+                }), on="sell_date",
+                how="left"
+            )
+            computation_df["Cost Basis (INR)"] = computation_df["sell_cost_basis"] * computation_df["fx_lot_buy_rate"]
+            computation_df["Sell Proceeds (INR)"] = computation_df["sell_proceeds"] * computation_df["fx_sell_rate"]
+            computation_df["Gains/Losses (INR)"] = computation_df["Sell Proceeds (INR)"] - computation_df["Cost Basis (INR)"]
+        else:
+            computation_df["sell_cost_basis"] = 0.0
+            computation_df["sell_proceeds"] = 0.0
+            computation_df["Cost Basis (INR)"] = 0.0
+            computation_df["Sell Proceeds (INR)"] = 0.0
+            computation_df["Gains/Losses (INR)"] = 0.0
+            computation_df['sell_units'] = 0.0
+
+        if 'dividend_date' in computation_df.columns:
+            computation_df = computation_df.merge(
+                fx_rates_df.rename(columns={
+                    'Date': 'dividend_date',
+                    'Rate': 'fx_dividend_rate',
+                    'Rate_last_month_end': 'fx_dividend_rate_last_month_end'
+                }), on="dividend_date",
+                how="left"
+            )
+            computation_df["Dividend Received (INR)"] = computation_df["dividend_received"] * computation_df["fx_dividend_rate"]   
+        else:
+            computation_df["dividend_received"] = 0.0
+            computation_df["Dividend Received (INR)"] = 0.0
         
         ticker_prices = {}
         for ticker in computation_df['ticker'].unique():
             ticker_prices[ticker] = fetch_ticker_information(ticker, self.calender_year)
         
         prices_df = self._get_price_history_for_tickers(computation_df, ticker_prices)
-        computation_df = computation_df.merge(prices_df, on=["ticker", "sell_date"], how="left")
+
+        merge_keys = ['ticker']
+        if 'sell_date' in computation_df:
+            merge_keys.append('sell_date')
+        
+        computation_df = computation_df.merge(prices_df, on=merge_keys, how="left")
+
         computation_df = computation_df.merge(
             fx_rates_df.rename(columns={
                 'Date': 'Peak Date',
@@ -102,7 +122,7 @@ class ScheduleFA:
         # Save intermediate computation
         computation_intermediate_df = computation_df.copy()
 
-        computation_df = computation_df.groupby(['ticker', 'lot_id'], as_index=False).agg({
+        aggregate_method = {
             # Lot info: keep first occurrence
             'lot_buy_date': 'first',
             'lot_buy_price': 'first',
@@ -133,26 +153,36 @@ class ScheduleFA:
 
             # Lot/Sell/Dividend/Peak/Close Fx rates
             'fx_lot_buy_rate': list,
-            'fx_sell_rate': list,
-            'fx_dividend_rate': list,
             'fx_peak_rate': list,
             'fx_close_rate': list,
 
             # Dates: keep all as list
-            'sell_date': list,
-            'dividend_date': list,
             'Peak Date': list,
             'Close Date': list
-        })
+        }
+
+        if 'sell_date' in computation_df:
+            aggregate_method['fx_sell_rate'] = list
+            aggregate_method['sell_date'] = list
+
+        if 'dividend_date' in computation_df:
+            aggregate_method['fx_dividend_rate'] = list
+            aggregate_method['dividend_date'] = list
+
+        computation_df = computation_df.groupby(['ticker', 'lot_id'], as_index=False).agg(aggregate_method)
 
         date_cols = ['sell_date', 'dividend_date', 'Peak Date', 'Close Date']
         for col in date_cols:
+            if col not in computation_df:
+                continue
             computation_df[col] = computation_df[col].apply(
                 lambda x: ', '.join([pd.to_datetime(d).strftime('%Y-%m-%d') for d in x if pd.notnull(d)])
             )
         
         fx_cols = ['fx_lot_buy_rate', 'fx_sell_rate', 'fx_dividend_rate', 'fx_peak_rate', 'fx_close_rate']
         for col in fx_cols:
+            if col not in computation_df:
+                continue
             computation_df[col] = computation_df[col].apply(
                 lambda x: ', '.join([str(d) for d in x if pd.notnull(d)])
             )
@@ -323,19 +353,18 @@ class ScheduleFA:
             dfs.append(df)
         
         fa_df, sell_df, dividend_df = dfs
-        df = (
-            fa_df
-            .merge(
-                sell_df,
-                on=["ticker"] + list(lot_schema.keys()),
+        merge_keys = ["ticker"] + list(lot_schema.keys())
+
+        df = fa_df
+        for _df in [sell_df, dividend_df]:
+            if _df.empty:
+                continue
+            df = df.merge(
+                _df,
+                on=merge_keys,
                 how="outer"
             )
-            .merge(
-                dividend_df,
-                on=["ticker"] + list(lot_schema.keys()),
-                how="outer"
-            )
-        )
+
         return df
 
     def _get_tickers_in_calender_year(self) -> List[str]:
@@ -347,11 +376,15 @@ class ScheduleFA:
         results = []
 
         # Pre-group by unique ticker/sell_date combos
-        unique_pairs = df[["ticker", "sell_date"]].drop_duplicates()
+        col_filters = ["ticker"]
+        if 'sell_date' in df:
+            col_filters.append("sell_date")
+
+        unique_pairs = df[col_filters].drop_duplicates()
 
         for _, row in unique_pairs.iterrows():
             ticker = row["ticker"]
-            sell_date = pd.to_datetime(row["sell_date"]) if pd.notna(row["sell_date"]) else None
+            sell_date = pd.to_datetime(row["sell_date"]) if 'sell_date' in row and pd.notna(row["sell_date"]) else None
 
             history = ticker_prices[ticker]['prices'].copy()
             history.index = pd.to_datetime(history.index).tz_localize(None)  # ensure clean index
@@ -377,14 +410,19 @@ class ScheduleFA:
                 close_date = history.index[-1]
                 close = history.iloc[-1]["Close"]
 
-            results.append({
+            entry = {
                 "ticker": ticker,
                 "sell_date": sell_date,
                 "Peak (USD)": max_high,
                 "Peak Date": peak_date,
                 "Close (USD)": close,
                 "Close Date": close_date,
-            })
+            }
+
+            if sell_date is None:
+                entry.pop("sell_date")
+
+            results.append(entry)
 
         return pd.DataFrame(results)
     
