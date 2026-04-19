@@ -33,118 +33,152 @@ class CapitalGains:
         fx_rates_df = self.rates(start=min_lot_date, end=f"{self.financial_year + 1}-03-31")
         fx_rates_df.reset_index(drop=True, inplace=True)
 
-        ltcg_df = computation_df[computation_df["gains_type"] == 'long']
-        stcg_df = computation_df[computation_df["gains_type"] == 'short']
-        dividends_df = computation_df[computation_df["dividend_date"].notna()]
-
         # -------------------
         # Calculate Dividend
         # -------------------
-        dividends_df = dividends_df.merge(
-            fx_rates_df.rename(columns={
-                'Date': 'dividend_date',
-                'Rate': 'fx_dividend_rate',
-                'Rate_last_month_end': 'fx_dividend_rate_last_month_end'
-            }), on="dividend_date",
-            how="left"
-        )
-        dividends_df['dividend_tax_paid'] *= -1
-        dividends_df['Dividend Received (INR)'] = dividends_df["dividend_received"] * dividends_df["fx_dividend_rate_last_month_end"]
-        dividends_df['Dividend Tax Paid (INR)'] = dividends_df["dividend_tax_paid"] * dividends_df["fx_dividend_rate_last_month_end"]
-        dividends_df['Net Dividend Received (INR)'] = dividends_df['Dividend Received (INR)'] - dividends_df['Dividend Tax Paid (INR)']
-        dividends_df['Effective Tax Rate'] = round(100 * dividends_df['Dividend Tax Paid (INR)'] / dividends_df['Dividend Received (INR)'],2)
-        dividends_df = dividends_df[["ticker", "dividend_date", "dividend_received", "dividend_tax_paid", "Dividend Received (INR)", "Dividend Tax Paid (INR)", "Net Dividend Received (INR)", "Effective Tax Rate", "fx_dividend_rate_last_month_end"]]
-        dividends_df.sort_values(by=['dividend_date', 'ticker'], ascending=True, inplace=True)
-        dividends_df.reset_index(drop=True, inplace=True)
-        dividends_df.rename(columns={
-            'ticker': 'Ticker',
-            'dividend_date': 'Dividend Date',
-            'dividend_received': 'Dividend Received (USD)',
-            'dividend_tax_paid': 'Dividend Tax Paid (USD)',
-            'fx_dividend_rate_last_month_end': 'USD/INR Conversion Rate'
-        }, inplace=True)
-        # ---------------
-        # Calculate LTCG
-        # ---------------
-        ltcg_df = ltcg_df.merge(
-            fx_rates_df.rename(columns={
-                'Date': 'lot_buy_date',
-                'Rate': 'fx_lot_buy_rate',
-                'Rate_last_month_end': 'fx_lot_buy_rate_last_month_end'
-            }), on="lot_buy_date",
-            how="left"
-        )
-        ltcg_df = ltcg_df.merge(
-            fx_rates_df.rename(columns={
-                'Date': 'sell_date',
-                'Rate': 'fx_sell_rate',
-                'Rate_last_month_end': 'fx_sell_rate_last_month_end'
-            }), on="sell_date",
-            how="left"
-        )
-        ltcg_df['Gains/Losses (USD)'] = ltcg_df['sell_proceeds'] - ltcg_df['sell_cost_basis']
-        ltcg_df['Cost Basis (INR)'] = ltcg_df['sell_cost_basis'] * ltcg_df['fx_lot_buy_rate_last_month_end']
-        ltcg_df['Sell Proceeds (INR)'] = ltcg_df['sell_proceeds'] * ltcg_df['fx_sell_rate_last_month_end']
-        ltcg_df['Gains/Losses (INR)'] = ltcg_df['Sell Proceeds (INR)'] - ltcg_df['Cost Basis (INR)']
-        ltcg_df = ltcg_df[[
-            "ticker", "lot_buy_date", "lot_buy_price", 
-            "sell_date", "sell_units", "sell_cost_basis", "sell_proceeds", "Gains/Losses (USD)",
-            'Cost Basis (INR)', 'Sell Proceeds (INR)', 'Gains/Losses (INR)', 
-            'fx_lot_buy_rate_last_month_end', 'fx_sell_rate_last_month_end'
-        ]]
-        ltcg_df.sort_values(by=["sell_date"], inplace=True)
-        ltcg_df.rename(columns={
-            'ticker': 'Ticker',
-            'lot_buy_date': 'Date Acquired',
-            'lot_buy_price': 'Buy Price (USD)',
-            'sell_date': 'Date Sold',
-            'sell_units': 'Units Sold',
-            'sell_cost_basis': 'Cost Basis (USD)',
-            'sell_proceeds': 'Sell Proceeds (USD)',
-            'fx_lot_buy_rate_last_month_end': 'USD/INR on Buy Date',
-            'fx_sell_rate_last_month_end': 'USD/INR on Sell Date',
-        }, inplace=True)
-        # ---------------
-        # Calculate STCG
-        # ---------------
-        stcg_df = stcg_df.merge(
-            fx_rates_df.rename(columns={
-                'Date': 'lot_buy_date',
-                'Rate': 'fx_lot_buy_rate',
-                'Rate_last_month_end': 'fx_lot_buy_rate_last_month_end'
-            }), on="lot_buy_date",
-            how="left"
-        )
-        stcg_df = stcg_df.merge(
-            fx_rates_df.rename(columns={
-                'Date': 'sell_date',
-                'Rate': 'fx_sell_rate',
-                'Rate_last_month_end': 'fx_sell_rate_last_month_end'
-            }), on="sell_date",
-            how="left"
-        )
-        stcg_df['Gains/Losses (USD)'] = stcg_df['sell_proceeds'] - stcg_df['sell_cost_basis']
-        stcg_df['Cost Basis (INR)'] = stcg_df['sell_cost_basis'] * stcg_df['fx_lot_buy_rate_last_month_end']
-        stcg_df['Sell Proceeds (INR)'] = stcg_df['sell_proceeds'] * stcg_df['fx_sell_rate_last_month_end']
-        stcg_df['Gains/Losses (INR)'] = stcg_df['Sell Proceeds (INR)'] - stcg_df['Cost Basis (INR)']
-        stcg_df = stcg_df[[
-            "ticker", "lot_buy_date", "lot_buy_price", 
-            "sell_date", "sell_units", "sell_cost_basis", "sell_proceeds", "Gains/Losses (USD)",
-            'Cost Basis (INR)', 'Sell Proceeds (INR)', 'Gains/Losses (INR)', 
-            'fx_lot_buy_rate_last_month_end', 'fx_sell_rate_last_month_end'
-        ]]
-        stcg_df.sort_values(by=["sell_date"], inplace=True)
-        stcg_df.rename(columns={
-            'ticker': 'Ticker',
-            'lot_buy_date': 'Date Acquired',
-            'lot_buy_price': 'Buy Price (USD)',
-            'sell_date': 'Date Sold',
-            'sell_units': 'Units Sold',
-            'sell_cost_basis': 'Cost Basis (USD)',
-            'sell_proceeds': 'Sell Proceeds (USD)',
-            'fx_lot_buy_rate_last_month_end': 'USD/INR on Buy Date',
-            'fx_sell_rate_last_month_end': 'USD/INR on Sell Date',
-        }, inplace=True)
+        if 'dividend_date' in computation_df.columns:
+            dividends_df = computation_df[computation_df["dividend_date"].notna()]
+
+            dividends_df = dividends_df.merge(
+                fx_rates_df.rename(columns={
+                    'Date': 'dividend_date',
+                    'Rate': 'fx_dividend_rate',
+                    'Rate_last_month_end': 'fx_dividend_rate_last_month_end'
+                }), on="dividend_date",
+                how="left"
+            )
+            dividends_df['dividend_tax_paid'] *= -1
+            dividends_df['Dividend Received (INR)'] = dividends_df["dividend_received"] * dividends_df["fx_dividend_rate_last_month_end"]
+            dividends_df['Dividend Tax Paid (INR)'] = dividends_df["dividend_tax_paid"] * dividends_df["fx_dividend_rate_last_month_end"]
+            dividends_df['Net Dividend Received (INR)'] = dividends_df['Dividend Received (INR)'] - dividends_df['Dividend Tax Paid (INR)']
+            dividends_df['Effective Tax Rate'] = round(100 * dividends_df['Dividend Tax Paid (INR)'] / dividends_df['Dividend Received (INR)'],2)
+            dividends_df = dividends_df[["ticker", "dividend_date", "dividend_received", "dividend_tax_paid", "Dividend Received (INR)", "Dividend Tax Paid (INR)", "Net Dividend Received (INR)", "Effective Tax Rate", "fx_dividend_rate_last_month_end"]]
+            dividends_df.sort_values(by=['dividend_date', 'ticker'], ascending=True, inplace=True)
+            dividends_df.reset_index(drop=True, inplace=True)
+            dividends_df.rename(columns={
+                'ticker': 'Ticker',
+                'dividend_date': 'Dividend Date',
+                'dividend_received': 'Dividend Received (USD)',
+                'dividend_tax_paid': 'Dividend Tax Paid (USD)',
+                'fx_dividend_rate_last_month_end': 'USD/INR Conversion Rate'
+            }, inplace=True)
+        else:
+            dividends_df = pd.DataFrame(columns=[
+                "Ticker",
+                "Dividend Date",
+                "Dividend Received (USD)",
+                "Dividend Tax Paid (USD)",
+                "Dividend Received (INR)",
+                "Dividend Tax Paid (INR)",
+                "Net Dividend Received (INR)",
+                "Effective Tax Rate",
+                "USD/INR Conversion Rate"
+            ])
+
+        if 'gains_type' in computation_df.columns:
+            ltcg_df = computation_df[computation_df["gains_type"] == 'long']
+            stcg_df = computation_df[computation_df["gains_type"] == 'short']
+            # ---------------
+            # Calculate LTCG
+            # ---------------
+            ltcg_df = ltcg_df.merge(
+                fx_rates_df.rename(columns={
+                    'Date': 'lot_buy_date',
+                    'Rate': 'fx_lot_buy_rate',
+                    'Rate_last_month_end': 'fx_lot_buy_rate_last_month_end'
+                }), on="lot_buy_date",
+                how="left"
+            )
+            ltcg_df = ltcg_df.merge(
+                fx_rates_df.rename(columns={
+                    'Date': 'sell_date',
+                    'Rate': 'fx_sell_rate',
+                    'Rate_last_month_end': 'fx_sell_rate_last_month_end'
+                }), on="sell_date",
+                how="left"
+            )
+            ltcg_df['Gains/Losses (USD)'] = ltcg_df['sell_proceeds'] - ltcg_df['sell_cost_basis']
+            ltcg_df['Cost Basis (INR)'] = ltcg_df['sell_cost_basis'] * ltcg_df['fx_lot_buy_rate_last_month_end']
+            ltcg_df['Sell Proceeds (INR)'] = ltcg_df['sell_proceeds'] * ltcg_df['fx_sell_rate_last_month_end']
+            ltcg_df['Gains/Losses (INR)'] = ltcg_df['Sell Proceeds (INR)'] - ltcg_df['Cost Basis (INR)']
+            ltcg_df = ltcg_df[[
+                "ticker", "lot_buy_date", "lot_buy_price", 
+                "sell_date", "sell_units", "sell_cost_basis", "sell_proceeds", "Gains/Losses (USD)",
+                'Cost Basis (INR)', 'Sell Proceeds (INR)', 'Gains/Losses (INR)', 
+                'fx_lot_buy_rate_last_month_end', 'fx_sell_rate_last_month_end'
+            ]]
+            ltcg_df.sort_values(by=["sell_date"], inplace=True)
+            ltcg_df.rename(columns={
+                'ticker': 'Ticker',
+                'lot_buy_date': 'Date Acquired',
+                'lot_buy_price': 'Buy Price (USD)',
+                'sell_date': 'Date Sold',
+                'sell_units': 'Units Sold',
+                'sell_cost_basis': 'Cost Basis (USD)',
+                'sell_proceeds': 'Sell Proceeds (USD)',
+                'fx_lot_buy_rate_last_month_end': 'USD/INR on Buy Date',
+                'fx_sell_rate_last_month_end': 'USD/INR on Sell Date',
+            }, inplace=True)
+            # ---------------
+            # Calculate STCG
+            # ---------------
+            stcg_df = stcg_df.merge(
+                fx_rates_df.rename(columns={
+                    'Date': 'lot_buy_date',
+                    'Rate': 'fx_lot_buy_rate',
+                    'Rate_last_month_end': 'fx_lot_buy_rate_last_month_end'
+                }), on="lot_buy_date",
+                how="left"
+            )
+            stcg_df = stcg_df.merge(
+                fx_rates_df.rename(columns={
+                    'Date': 'sell_date',
+                    'Rate': 'fx_sell_rate',
+                    'Rate_last_month_end': 'fx_sell_rate_last_month_end'
+                }), on="sell_date",
+                how="left"
+            )
+            stcg_df['Gains/Losses (USD)'] = stcg_df['sell_proceeds'] - stcg_df['sell_cost_basis']
+            stcg_df['Cost Basis (INR)'] = stcg_df['sell_cost_basis'] * stcg_df['fx_lot_buy_rate_last_month_end']
+            stcg_df['Sell Proceeds (INR)'] = stcg_df['sell_proceeds'] * stcg_df['fx_sell_rate_last_month_end']
+            stcg_df['Gains/Losses (INR)'] = stcg_df['Sell Proceeds (INR)'] - stcg_df['Cost Basis (INR)']
+            stcg_df = stcg_df[[
+                "ticker", "lot_buy_date", "lot_buy_price", 
+                "sell_date", "sell_units", "sell_cost_basis", "sell_proceeds", "Gains/Losses (USD)",
+                'Cost Basis (INR)', 'Sell Proceeds (INR)', 'Gains/Losses (INR)', 
+                'fx_lot_buy_rate_last_month_end', 'fx_sell_rate_last_month_end'
+            ]]
+            stcg_df.sort_values(by=["sell_date"], inplace=True)
+            stcg_df.rename(columns={
+                'ticker': 'Ticker',
+                'lot_buy_date': 'Date Acquired',
+                'lot_buy_price': 'Buy Price (USD)',
+                'sell_date': 'Date Sold',
+                'sell_units': 'Units Sold',
+                'sell_cost_basis': 'Cost Basis (USD)',
+                'sell_proceeds': 'Sell Proceeds (USD)',
+                'fx_lot_buy_rate_last_month_end': 'USD/INR on Buy Date',
+                'fx_sell_rate_last_month_end': 'USD/INR on Sell Date',
+            }, inplace=True)
+        else:
+            gain_columns = [
+                "Ticker",
+                "Date Acquired",
+                "Buy Price (USD)",
+                "Date Sold",
+                "Units Sold",
+                "Cost Basis (USD)",
+                "Sell Proceeds (USD)",
+                "Gains/Losses (USD)",
+                "Cost Basis (INR)",
+                "Sell Proceeds (INR)",
+                "Gains/Losses (INR)",
+                "USD/INR on Buy Date",
+                "USD/INR on Sell Date",
+            ]
+
+            ltcg_df = pd.DataFrame(columns=gain_columns)
+            stcg_df = pd.DataFrame(columns=gain_columns)
 
         # Format Date Acquired column in LTCG and STCG
         for df in [ltcg_df, stcg_df, dividends_df]:
@@ -316,30 +350,47 @@ class CapitalGains:
             dfs.append(df)
         
         cg_df, sell_df, dividend_df, dividend_tax_df = dfs
-        merged_dividend_df = dividend_df.merge(
-            dividend_tax_df.rename(columns={
-                'dividend_tax_date': 'dividend_date'
-            }), on=["ticker", "dividend_date"] + list(lot_schema.keys()),
-            how="inner"
-        )
-        df = (
-            cg_df
-            .merge(
-                sell_df,
-                on=["ticker"] + list(lot_schema.keys()),
+        merge_keys = ["ticker"] + list(lot_schema.keys())
+        dividend_merge_keys = ["ticker", "dividend_date", "dividend_received"] + list(lot_schema.keys())
+
+        if not dividend_df.empty and not dividend_tax_df.empty:
+            merged_dividend_df = dividend_df.merge(
+                dividend_tax_df.rename(columns={
+                    'dividend_tax_date': 'dividend_date'
+                }), on=["ticker", "dividend_date"] + list(lot_schema.keys()),
+                how="inner"
+            )
+        else:
+            merged_dividend_df = dividend_df.copy(deep=True)
+
+        df = cg_df
+        for ix, _df in enumerate([sell_df, dividend_df, merged_dividend_df], start=1):
+            if _df.empty:
+                continue
+            df = df.merge(
+                _df,
+                on=merge_keys if ix != 3 else dividend_merge_keys,
                 how="outer"
             )
-            .merge(
-                dividend_df,
-                on=["ticker"] + list(lot_schema.keys()),
-                how="outer"
-            )
-            .merge(
-                merged_dividend_df,
-                on=["ticker", "dividend_date", "dividend_received"] + list(lot_schema.keys()),
-                how="outer"
-            )
-        )
+
+        # df = (
+        #     cg_df
+        #     .merge(
+        #         sell_df,
+        #         on=["ticker"] + list(lot_schema.keys()),
+        #         how="outer"
+        #     )
+        #     .merge(
+        #         dividend_df,
+        #         on=["ticker"] + list(lot_schema.keys()),
+        #         how="outer"
+        #     )
+        #     .merge(
+        #         merged_dividend_df,
+        #         on=["ticker", "dividend_date", "dividend_received"] + list(lot_schema.keys()),
+        #         how="outer"
+        #     )
+        # )
         return df
     
     def _get_tickers_in_financial_year(self) -> List[str]:
