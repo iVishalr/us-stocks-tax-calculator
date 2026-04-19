@@ -9,6 +9,7 @@ def main(file_path: str, save_path: str = "trades.csv"):
     trades_df = pd.read_excel(file_path, sheet_name="Trades")
 
     dividends_df = dividends_df[dividends_df["Type"].isin(["DIV", "DIVTAX"])].copy()
+    dividends_df = dividends_df[dividends_df["Comment"] != "Dividend on Cash Balance"]
     dividends_df["Name"] = (
         dividends_df["Comment"]
         .str.replace(r"\s*,?\s*Inc\.?.*", ", Inc.", regex=True)
@@ -38,7 +39,7 @@ def main(file_path: str, save_path: str = "trades.csv"):
     df_div_expanded["Price Per Share (in USD)"] = np.nan
     df_div_expanded["Cash Amount (in USD)"] = np.nan
     df_div_expanded["Commission Charges (in USD)"] = np.nan
-    df_div_expanded["Amount"] = df_div_expanded["Amount"].astype(float)
+    df_div_expanded["Amount"] = df_div_expanded["Amount (in USD)"].astype(float)
 
     # Reorder columns
     df_div_final = df_div_expanded[
@@ -92,7 +93,7 @@ def main(file_path: str, save_path: str = "trades.csv"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("-f", "--file", required=True, help="Path to vested finance transactions excel sheet. (required)")
-    parser.add_argument("-o", "--output", default="trades.csv", help="Path to store the processed data (CSV)")
+    parser.add_argument("-o", "--output", default="vested_finance_trades.csv", help="Path to store the processed data (CSV)")
     args = parser.parse_args()
 
     if not os.path.exists(args.file):
